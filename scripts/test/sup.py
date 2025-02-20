@@ -10,4 +10,4 @@ def sup(name: str, alt_greeting: str):
   click.echo(f"{greeting}, {name}!")
 
 if __name__ == "__main__":
-  hello_world()
+  sup()
