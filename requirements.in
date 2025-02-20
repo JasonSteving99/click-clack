@@ -1,0 +1,5 @@
+asyncclick==8.1.7.2
+click
+pydantic==2.9.2
+result==0.17.0
+marimo[sql]
