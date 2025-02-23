@@ -46,4 +46,8 @@ The UI will generate an input for each command parameter, and will forward the d
 
 Currently this project only supports automatically discovering the following command parameter types:
 - `str`
+- `int`
+- `float`
+- `bool` (including `is_flag=True`)
+- `click.Choice`
 - ...literally everything else is a TODO...

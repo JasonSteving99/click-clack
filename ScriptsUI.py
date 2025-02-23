@@ -7,6 +7,7 @@ app = marimo.App(width="full")
 @app.cell
 def _():
     import marimo as mo
+
     return (mo,)
 
 
@@ -16,7 +17,6 @@ def _():
     import inspect
     import ast
     import os
-
 
     def find_decorated_objects(module_path, decorator_name, exclude):
         """
@@ -41,8 +41,7 @@ def _():
                 for decorator in node.decorator_list:
                     if (
                         (
-                            hasattr(decorator, "func")
-                            and isinstance(decorator.func, ast.Attribute)
+                            hasattr(decorator, "func") and isinstance(decorator.func, ast.Attribute)
                         )  # @click.command()
                         and decorator.func.attr == decorator_name
                     ):
@@ -87,6 +86,7 @@ def _():
             raise ValueError("Invalid module path. Must be a directory.")
 
         return decorated_objects
+
     return ast, find_decorated_objects, import_module, inspect, os
 
 
@@ -94,7 +94,6 @@ def _():
 def _(Optional, mo, os):
     DECORATOR_NAME_TEXT_AREA_FORM_FIELD = "decorator_name_text_area"
     EXCLUDE_FILE_BROWSER_FORM_FIELD = "exclude_file_browser"
-
 
     def _form_validator(form_json: dict[str, object]) -> Optional[str]:
         if not form_json[DECORATOR_NAME_TEXT_AREA_FORM_FIELD]:
@@ -121,9 +120,7 @@ def _(Optional, mo, os):
         .form(validate=_form_validator)
     )
 
-    mo.accordion({
-        "Configure Scripts Discovery Scope (TODO: Make this auto-run on load)": form
-    })
+    mo.accordion({"Configure Scripts Discovery Scope (TODO: Make this auto-run on load)": form})
     return (
         DECORATOR_NAME_TEXT_AREA_FORM_FIELD,
         EXCLUDE_FILE_BROWSER_FORM_FIELD,
@@ -144,12 +141,9 @@ def _(
         # module_or_package = mo.notebook_dir()
         curr_path = os.getcwd()
         files_to_exclude = {
-            f.path[len(curr_path) + 1 :]
-            for f in form.value[EXCLUDE_FILE_BROWSER_FORM_FIELD]
+            f.path[len(curr_path) + 1 :] for f in form.value[EXCLUDE_FILE_BROWSER_FORM_FIELD]
         }
-        commands = find_decorated_objects(
-            curr_path, decorator_name, exclude=files_to_exclude
-        )
+        commands = find_decorated_objects(curr_path, decorator_name, exclude=files_to_exclude)
     else:
         commands = []
     commands
@@ -177,22 +171,64 @@ def _(commands, mo, pick_cmd):
     )
 
     import click
+    from dataclasses import dataclass
 
-    RENDERED_OPTION_SELECT = mo._plugins.ui._impl.input.text  # | mo._plugins.ui._impl.input.file_browser | mo._plugins.ui._impl.input.file
+    @dataclass(frozen=True)
+    class Checkbox:
+        ui_elem: mo.ui.checkbox
+        is_flag: bool
+
+    RENDERED_OPTION_SELECT = (
+        mo._plugins.ui._impl.input.text | mo.ui.number | mo.ui.number | Checkbox | mo.ui.dropdown
+    )
+
+    CLICK_TYPE_TO_MARIMO_UI = {
+        click.STRING: mo.ui.text,
+        click.INT: mo.ui.number,
+        click.FLOAT: mo.ui.number,
+        click.BOOL: mo.ui.checkbox,
+        click.Choice: mo.ui.dropdown,
+    }
 
     def _render_option_input(opt: click.Option):
         default = opt.default
         opts = opt.opts
         required = opt.required
         help = opt.help
+
         match opt.type:
             case click.STRING:
-                return mo.ui.text(
-                    placeholder=default if default and not required else "", 
+                ui_element = CLICK_TYPE_TO_MARIMO_UI[click.STRING](
+                    placeholder=default if default and not required else "",
+                    label=("" if required else "(Optional) ") + "/".join(opts),
+                )
+            case click.INT:
+                ui_element = CLICK_TYPE_TO_MARIMO_UI[click.INT](
+                    value=default if default is not None else 0,
+                    label=("" if required else "(Optional) ") + "/".join(opts),
+                )  # Default to 0 if no default is provided for int
+            case click.FLOAT:
+                ui_element = CLICK_TYPE_TO_MARIMO_UI[click.FLOAT](
+                    value=default if default is not None else 0.0,
+                    label=("" if required else "(Optional) ") + "/".join(opts),
+                )  # Default to 0.0 if no default for float
+            case click.BOOL:
+                ui_element = Checkbox(
+                    ui_elem=CLICK_TYPE_TO_MARIMO_UI[click.BOOL](
+                        value=bool(default) if default is not None else False,
+                        label=("" if required else "(Optional) ") + "/".join(opts),
+                    ),  # Default to False if no default for bool
+                    is_flag=opt.is_flag,
+                )
+            case click.Choice(choices=choices):
+                ui_element = CLICK_TYPE_TO_MARIMO_UI[click.Choice](
+                    options=choices,  # Extract choices from click.Choice type
                     label=("" if required else "(Optional) ") + "/".join(opts),
                 )
             case _:
                 raise ValueError(f"Encountered Unsupported Option Types: {opt}")
+
+        return ui_element
 
     if pick_cmd.value:
         params_select = {opt.opts[0]: _render_option_input(opt) for opt in pick_cmd.value.params}
@@ -202,18 +238,30 @@ def _(commands, mo, pick_cmd):
     mo.vstack(
         [
             pick_cmd.center(),
-            *[p.center() for p in params_select.values()],
+            *[
+                (p.ui_elem if isinstance(p, Checkbox) else p).center()
+                for p in params_select.values()
+            ],
             *filter(
                 None,
                 [run_cmd_button.center() if _run_cmd_button_enabled else None],
             ),
         ]
     )
-    return RENDERED_OPTION_SELECT, click, params_select, run_cmd_button
+    return (
+        CLICK_TYPE_TO_MARIMO_UI,
+        Checkbox,
+        RENDERED_OPTION_SELECT,
+        click,
+        dataclass,
+        params_select,
+        run_cmd_button,
+    )
 
 
 @app.cell
 def show_cmd_output(
+    Checkbox,
     RENDERED_OPTION_SELECT,
     mo,
     params_select,
@@ -222,15 +270,25 @@ def show_cmd_output(
 ):
     import traceback
 
-    def _render_options(params_select: dict[str, RENDERED_OPTION_SELECT]) -> list[str]:
-        # TODO: Stop hardcoding the assumption that they all have a simple `.value` str to access.
-        strings = [(option, ui_select.value) for option, ui_select in params_select.items() if ui_select.value]
-        return [s for pair in strings for s in pair]
+    def _render_options(
+        params_select: dict[str, RENDERED_OPTION_SELECT],
+    ) -> list[str]:
+        rendered_options = []
+        for option, ui_select in params_select.items():
+            match ui_select:
+                case Checkbox(ui_elem=ui_elem, is_flag=is_flag) if is_flag == True:
+                    if ui_elem.value:
+                        rendered_options.append(option)
+                case _ if ui_select.value is not None:
+                    rendered_options.append(option)
+                    rendered_options.append(str(ui_select.value))
+        return rendered_options
 
     if run_cmd_button.value:
         try:
             with mo.capture_stdout() as _stdout, mo.capture_stderr() as _stderr:
                 try:
+                    print(_render_options(params_select=params_select))
                     pick_cmd.value.main(
                         args=_render_options(params_select=params_select),
                         standalone_mode=False,  # Don't auto-exit the interpreter on finish.
