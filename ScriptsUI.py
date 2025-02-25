@@ -137,39 +137,21 @@ def _(
     os,
 ):
     if form.value:
-        decorator_name = form.value[DECORATOR_NAME_TEXT_AREA_FORM_FIELD]
+        _decorator_name = form.value[DECORATOR_NAME_TEXT_AREA_FORM_FIELD]
         # module_or_package = mo.notebook_dir()
-        curr_path = os.getcwd()
-        files_to_exclude = {
-            f.path[len(curr_path) + 1 :] for f in form.value[EXCLUDE_FILE_BROWSER_FORM_FIELD]
+        _curr_path = os.getcwd()
+        _files_to_exclude = {
+            f.path[len(_curr_path) + 1 :] for f in form.value[EXCLUDE_FILE_BROWSER_FORM_FIELD]
         }
-        commands = find_decorated_objects(curr_path, decorator_name, exclude=files_to_exclude)
+        commands = find_decorated_objects(_curr_path, _decorator_name, exclude=_files_to_exclude)
     else:
         commands = []
-    commands
-    return commands, curr_path, decorator_name, files_to_exclude
+    # commands
+    return (commands,)
 
 
 @app.cell
-def _(commands, mo):
-    pick_cmd = mo.ui.dropdown(
-        options={f"{com[0].name}: {com[1]}": com[0] for com in commands},
-        # options=[f"{com[0].name}: {com[1]}" for com in commands],
-        label="Pick the command to run",
-        searchable=len(commands) > 5,
-    )
-    return (pick_cmd,)
-
-
-@app.cell
-def _(commands, mo, pick_cmd):
-    _run_cmd_button_enabled = len(commands) >= 1 and pick_cmd.value
-    run_cmd_button = mo.ui.run_button(
-        disabled=not _run_cmd_button_enabled,
-        label="Run Command!",
-        tooltip="Run the selected command.",
-    )
-
+def _(mo):
     import click
     from dataclasses import dataclass
 
@@ -190,7 +172,7 @@ def _(commands, mo, pick_cmd):
         click.Choice: mo.ui.dropdown,
     }
 
-    def _render_option_input(opt: click.Option):
+    def render_option_input(opt: click.Option):
         default = opt.default
         opts = opt.opts
         required = opt.required
@@ -224,53 +206,29 @@ def _(commands, mo, pick_cmd):
                 ui_element = CLICK_TYPE_TO_MARIMO_UI[click.Choice](
                     options=choices,  # Extract choices from click.Choice type
                     label=("" if required else "(Optional) ") + "/".join(opts),
+                    searchable=len(choices) >= 5,
+                    value=default,
                 )
             case _:
                 raise ValueError(f"Encountered Unsupported Option Types: {opt}")
 
         return ui_element
 
-    if pick_cmd.value:
-        params_select = {opt.opts[0]: _render_option_input(opt) for opt in pick_cmd.value.params}
-    else:
-        params_select = {}
-
-    mo.vstack(
-        [
-            pick_cmd.center(),
-            *[
-                (p.ui_elem if isinstance(p, Checkbox) else p).center()
-                for p in params_select.values()
-            ],
-            *filter(
-                None,
-                [run_cmd_button.center() if _run_cmd_button_enabled else None],
-            ),
-        ]
-    )
     return (
         CLICK_TYPE_TO_MARIMO_UI,
         Checkbox,
         RENDERED_OPTION_SELECT,
         click,
         dataclass,
-        params_select,
-        run_cmd_button,
+        render_option_input,
     )
 
 
 @app.cell
-def show_cmd_output(
-    Checkbox,
-    RENDERED_OPTION_SELECT,
-    mo,
-    params_select,
-    pick_cmd,
-    run_cmd_button,
-):
+def show_cmd_output(Checkbox, RENDERED_OPTION_SELECT):
     import traceback
 
-    def _render_options(
+    def render_options(
         params_select: dict[str, RENDERED_OPTION_SELECT],
     ) -> list[str]:
         rendered_options = []
@@ -279,21 +237,84 @@ def show_cmd_output(
                 case Checkbox(ui_elem=ui_elem, is_flag=is_flag) if is_flag == True:
                     if ui_elem.value:
                         rendered_options.append(option)
-                case _ if ui_select.value is not None:
+                case _ if ui_select.value:
                     rendered_options.append(option)
                     rendered_options.append(str(ui_select.value))
         return rendered_options
 
+    return render_options, traceback
+
+
+@app.cell
+def _(Checkbox, commands, mo, render_option_input):
+    def _generate_help(command):
+        """Generates a formatted help string for a Click command."""
+        # Create a dummy context
+        ctx = command.make_context(command.name, [])  # Important!
+        # Get the help string using the context
+        return command.get_help(ctx)
+
+    _run_cmd_button_enabled = len(commands) >= 1
+    run_cmd_button = mo.ui.run_button(
+        disabled=not _run_cmd_button_enabled,
+        label="Run Command!",
+        tooltip="Run the selected command.",
+    )
+    if commands:
+        tab_params = {}
+        _tabs = {}
+        for _com, _location in sorted(commands, key=lambda _t: _t[0].name):
+            _params_select = {_opt.opts[0]: render_option_input(_opt) for _opt in _com.params}
+            tab_params[_com.name] = _params_select
+
+            _tabs[_com.name] = mo.vstack(
+                [
+                    mo.md(f"""
+    ```bash
+    Location: {_location}
+
+    {_generate_help(_com)}
+    ```
+    """),
+                    # Options selection UI.
+                    *[
+                        (_p.ui_elem if isinstance(_p, Checkbox) else _p)
+                        for _p in _params_select.values()
+                    ],
+                    run_cmd_button,
+                ]
+            )
+        cmd_tabs = mo.ui.tabs(
+            tabs=_tabs,
+            lazy=True,
+        )
+    else:
+        tab_params = None
+        cmd_tabs = None
+    cmd_tabs
+    return cmd_tabs, run_cmd_button, tab_params
+
+
+@app.cell
+def _(
+    cmd_tabs,
+    commands,
+    mo,
+    render_options,
+    run_cmd_button,
+    tab_params,
+    traceback,
+):
     if run_cmd_button.value:
         try:
             with mo.capture_stdout() as _stdout, mo.capture_stderr() as _stderr:
                 try:
-                    print(_render_options(params_select=params_select))
-                    pick_cmd.value.main(
-                        args=_render_options(params_select=params_select),
+                    picked_cmd = next(_c for _c in commands if _c[0].name == cmd_tabs.value)[0]
+                    picked_cmd.main(
+                        args=render_options(params_select=tab_params[cmd_tabs.value]),
                         standalone_mode=False,  # Don't auto-exit the interpreter on finish.
                     )
-                except:
+                except Exception:
                     traceback.print_exc()
 
                 _fmtd_out = ""
@@ -323,7 +344,7 @@ def show_cmd_output(
     else:
         _output = None
     _output
-    return (traceback,)
+    return (picked_cmd,)
 
 
 if __name__ == "__main__":
