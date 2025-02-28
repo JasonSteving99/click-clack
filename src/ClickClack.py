@@ -91,11 +91,11 @@ def _():
 
 
 @app.cell
-def _(Optional, mo, os):
+def _(mo, os):
     DECORATOR_NAME_TEXT_AREA_FORM_FIELD = "decorator_name_text_area"
     EXCLUDE_FILE_BROWSER_FORM_FIELD = "exclude_file_browser"
 
-    def _form_validator(form_json: dict[str, object]) -> Optional[str]:
+    def _form_validator(form_json: dict[str, object]) -> str | None:
         if not form_json[DECORATOR_NAME_TEXT_AREA_FORM_FIELD]:
             return "Decorator name is required!"
 

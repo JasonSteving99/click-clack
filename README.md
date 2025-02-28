@@ -1,42 +1,40 @@
 # Auto Generated Minimalist UI For All of Your Python Scripts
 
-For example, when run over the root of this git repo:
+For example, when in a repo containing the following files:
 
 ```bash
 $ tree
 .
-├── Makefile
-├── README.md
-├── ScriptsUI.py
-├── images
-│   └── minimalist_ui_example.png
-├── pyproject.toml
-├── requirements.in
-├── requirements.txt
+...
 ├── scripts
-│   ├── hello_world_script.py    # <-- This is a script that contains a @click.command()
+│   ├── hello_world_script.py    # <-- Script containing a @click.command()
+│   ├── options_test.py          # <-- Script containing a @click.command()
+│   ├── not_a_click_cmd.py
 │   └── test
-│       └── sup.py               # <-- This is a script that contains a @click.command()
-├── scripts-ui.code-workspace
-├── tool-requirements.in
-└── tool-requirements.txt
-
-4 directories, 12 files
+│       └── sup.py               # <-- Script containing a @click.command()
+...
 ```
 
 ...and run the following commands:
 ```bash
 $ source .venv/bin/activate
-$ make install  # Or wtv pip/uv command you use to setup your virtualenv.
-$ marimo run ScriptsUI.py
+$ pip install click-clack  # Or wtv pip/uv command you use to setup your virtualenv.
+$ click-clack
+
+        Running ClickClack.py ⚡
+
+        ➜  URL: http://localhost:2718
 ```
 
 ...you'll get a minimalist UI that looks like this:
 ![Scripts UI](https://raw.githubusercontent.com/JasonSteving99/python-script-ui/refs/heads/main/images/minimalist_ui_example.png)
 
+...simply enter any values, and click `Run Command!`:
+![Run Command](https://raw.githubusercontent.com/JasonSteving99/python-script-ui/refs/heads/main/images/minimalist_ui_example_run.png)
+
 ## How It Works
 
-This project crawls all `.py` files at and below the directory where the `marimo run ScriptsUI.py` command is run. It then automatically traverses the Python AST looking for the `@click.command()` decorator, and imports the decorated commands and generates a minimalist UI for them.
+This project crawls all `.py` files at and below the directory where the `click-clack` command is run. It then automatically traverses the Python AST looking for the `@click.command()` decorator, and imports the decorated commands and generates a minimalist UI for them.
 
 ## Command Parameter Discovery
 

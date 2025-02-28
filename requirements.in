@@ -1,3 +1,4 @@
+-e .  # Editable install of the current pyproject.toml to pickup scripts.
 asyncclick==8.1.7.2
 click
 pydantic==2.9.2
