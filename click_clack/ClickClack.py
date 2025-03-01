@@ -7,6 +7,7 @@ app = marimo.App(width="full")
 @app.cell
 def _():
     import marimo as mo
+
     return (mo,)
 
 
@@ -35,7 +36,7 @@ def _():
         decorated_objects = []
 
         def _find_in_ast(node, current_module_path):
-            if isinstance(node, ast.FunctionDef):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 func_name = node.name
                 for decorator in node.decorator_list:
                     if (
@@ -55,7 +56,6 @@ def _():
                                 )
                             )
                         except Exception:
-                            # Likely a class/function defined in another module
                             pass  # Or handle differently if needed
                         break  # Found the decorator, no need to check others
 
@@ -85,6 +85,7 @@ def _():
             raise ValueError("Invalid module path. Must be a directory.")
 
         return decorated_objects
+
     return ast, find_decorated_objects, import_module, inspect, os
 
 
@@ -118,7 +119,7 @@ def _(mo, os):
         .form(validate=_form_validator)
     )
 
-    mo.accordion({"Configure Scripts Discovery Scope (TODO: Make this auto-run on load)": form})
+    mo.accordion({"[Click to reconfigure Scripts Discovery Scope]": form})
     return (
         DECORATOR_NAME_TEXT_AREA_FORM_FIELD,
         EXCLUDE_FILE_BROWSER_FORM_FIELD,
@@ -134,23 +135,28 @@ def _(
     form,
     os,
 ):
+    _curr_path = os.getcwd()
+
     if form.value:
         _decorator_name = form.value[DECORATOR_NAME_TEXT_AREA_FORM_FIELD]
         # module_or_package = mo.notebook_dir()
-        _curr_path = os.getcwd()
         _files_to_exclude = {
             f.path[len(_curr_path) + 1 :] for f in form.value[EXCLUDE_FILE_BROWSER_FORM_FIELD]
         }
         commands = find_decorated_objects(_curr_path, _decorator_name, exclude=_files_to_exclude)
     else:
-        commands = []
-    # commands
+        # Just kick this off right away optimistically, if there are any issues, then fallback.
+        try:
+            commands = find_decorated_objects(_curr_path, "command", exclude={})
+        except Exception:
+            commands = []
     return (commands,)
 
 
 @app.cell
 def _(mo, os):
     import click
+    import asyncclick
     from dataclasses import dataclass
 
     @dataclass(frozen=True)
@@ -159,103 +165,105 @@ def _(mo, os):
         is_flag: bool
 
     RENDERED_OPTION_SELECT = (
-        mo._plugins.ui._impl.input.text | mo.ui.number | mo.ui.number | Checkbox | mo.ui.dropdown | mo.ui.file | mo.ui.number
+        mo._plugins.ui._impl.input.text
+        | mo.ui.number
+        | mo.ui.number
+        | Checkbox
+        | mo.ui.dropdown
+        | mo.ui.file
+        | mo.ui.number
     )
-
-    CLICK_TYPE_TO_MARIMO_UI = {
-        click.STRING: mo.ui.text,
-        click.INT: mo.ui.number,
-        click.FLOAT: mo.ui.number,
-        click.BOOL: mo.ui.checkbox,
-        click.Choice: mo.ui.dropdown,
-        click.File: mo.ui.file_browser,
-        click.Path: mo.ui.text,
-        click.DateTime: mo.ui.text,
-        click.IntRange: mo.ui.number,
-        click.FloatRange: mo.ui.number,
-    }
 
     def render_option_input(opt: click.Option):
         default = opt.default
         opts = opt.opts
         required = opt.required
         help = opt.help
-        label=("" if required else "(Optional) ") + "/".join(opts)
+        label = ("" if required else "(Optional) ") + "/".join(opts)
 
         match opt.type:
-            case click.STRING:
-                ui_element = CLICK_TYPE_TO_MARIMO_UI[click.STRING](
+            case click.STRING | asyncclick.STRING:
+                ui_element = mo.ui.text(
                     placeholder=default if default and not required else "",
                     label=label,
                 )
-            case click.INT:
-                ui_element = CLICK_TYPE_TO_MARIMO_UI[click.INT](
+            case click.INT | asyncclick.INT:
+                ui_element = mo.ui.number(
                     value=default if default is not None else 0,
                     label=label,
                 )  # Default to 0 if no default is provided for int
-            case click.FLOAT:
-                ui_element = CLICK_TYPE_TO_MARIMO_UI[click.FLOAT](
+            case click.FLOAT | asyncclick.FLOAT:
+                ui_element = mo.ui.number(
                     value=default if default is not None else 0.0,
                     label=label,
                 )  # Default to 0.0 if no default for float
-            case click.BOOL:
+            case click.BOOL | asyncclick.BOOL:
                 ui_element = Checkbox(
-                    ui_elem=CLICK_TYPE_TO_MARIMO_UI[click.BOOL](
+                    ui_elem=mo.ui.checkbox(
                         value=bool(default) if default is not None else False,
                         label=label,
                     ),  # Default to False if no default for bool
                     is_flag=opt.is_flag,
                 )
-            case click.Choice(choices=choices):
-                ui_element = CLICK_TYPE_TO_MARIMO_UI[click.Choice](
+            case click.Choice(choices=choices) | asyncclick.Choice(choices=choices):
+                ui_element = mo.ui.dropdown(
                     options=choices,  # Extract choices from click.Choice type
                     label=label,
                     searchable=len(choices) >= 5,
                     value=default,
                 )
-            case click.File():
-                # TODO: Add support for click's more advanced features here, such as stdin via "-" and 
+            case click.File() | asyncclick.File():
+                # TODO: Add support for click's more advanced features here, such as stdin via "-" and
                 #       referencing files that don't necessarily exist yet.
-                ui_element = CLICK_TYPE_TO_MARIMO_UI[click.File](
+                ui_element = mo.ui.file_browser(
                     label=label,
                     initial_path=os.getcwd(),
                     multiple=False,
                     restrict_navigation=False,  # Allow selecting arbitrary files even above curr dir.
                 )
-            case click.Path():
-                ui_element = CLICK_TYPE_TO_MARIMO_UI[click.Path](
-                    placeholder=str(default) if default and not required else "", # Default to string representation of default path
+            case click.Path() | asyncclick.Path():
+                ui_element = mo.ui.text(
+                    placeholder=str(default)
+                    if default and not required
+                    else "",  # Default to string representation of default path
                     label=label,
                 )
-            case click.DateTime(formats=formats):
-                ui_element = CLICK_TYPE_TO_MARIMO_UI[click.DateTime](
+            case click.DateTime(formats=formats) | asyncclick.DateTime(formats=formats):
+                ui_element = mo.ui.text(
                     placeholder=str(default) if default else "  |  ".join(formats),
                     label=label,
                     full_width=True,  # Make room to show all the formats.
                 )
-            case click.IntRange(min=min_val, max=max_val):
-                ui_element = CLICK_TYPE_TO_MARIMO_UI[click.IntRange](
+            case (
+                click.IntRange(min=min_val, max=max_val)
+                | asyncclick.IntRange(min=min_val, max=max_val)
+            ):
+                ui_element = mo.ui.number(
                     start=min_val,
                     stop=max_val,
                     step=1,  # Integers.
                     value=default,
                     label=label,
                 )
-            case click.FloatRange(min=min_val, max=max_val):
-                ui_element = CLICK_TYPE_TO_MARIMO_UI[click.FloatRange](
+            case (
+                click.FloatRange(min=min_val, max=max_val)
+                | asyncclick.FloatRange(min=min_val, max=max_val)
+            ):
+                ui_element = mo.ui.number(
                     start=min_val,
                     stop=max_val,
-                    value=default, 
+                    value=default,
                     label=label,
                 )
             case _:
-                raise ValueError(f"Encountered Unsupported Option Types: {opt}")
+                raise ValueError(f"Encountered Unsupported Option Types: {opt} {opt.type}")
 
         return ui_element
+
     return (
-        CLICK_TYPE_TO_MARIMO_UI,
         Checkbox,
         RENDERED_OPTION_SELECT,
+        asyncclick,
         click,
         dataclass,
         render_option_input,
@@ -282,15 +290,29 @@ def show_cmd_output(Checkbox, RENDERED_OPTION_SELECT, mo):
                     rendered_options.append(option)
                     rendered_options.append(str(ui_select.value))
         return rendered_options
+
     return render_options, traceback
 
 
 @app.cell
-def _(Checkbox, commands, mo, render_option_input):
-    def _generate_help(command):
+async def _(
+    Checkbox,
+    asyncclick,
+    click,
+    commands,
+    mo,
+    render_option_input,
+):
+    async def _generate_help(command):
         """Generates a formatted help string for a Click command."""
         # Create a dummy context
-        ctx = command.make_context(command.name, [])  # Important!
+        match command:
+            case click.Command():
+                ctx = command.make_context(command.name, [])  # Important!
+            case asyncclick.core.Command():
+                ctx = await command.make_context(command.name, [])  # Important!
+            case _:
+                raise ValueError(f"Unexpected command type: {command} {type(command)}")
         # Get the help string using the context
         return command.get_help(ctx)
 
@@ -299,6 +321,9 @@ def _(Checkbox, commands, mo, render_option_input):
         disabled=not _run_cmd_button_enabled,
         label="Run Command!",
         tooltip="Run the selected command.",
+    )
+    streamed_outputs_opt_in = mo.ui.checkbox(
+        label="Stream Output (for long-running commands, but worse formatting due to current Marimo limitations)"
     )
     if commands:
         tab_params = {}
@@ -313,7 +338,7 @@ def _(Checkbox, commands, mo, render_option_input):
     ```bash
     Location: {_location}
 
-    {_generate_help(_com)}
+    {await _generate_help(_com)}
     ```
     """),
                     # Options selection UI.
@@ -322,6 +347,7 @@ def _(Checkbox, commands, mo, render_option_input):
                         for _p in _params_select.values()
                     ],
                     run_cmd_button,
+                    streamed_outputs_opt_in,
                 ]
             )
         cmd_tabs = mo.ui.tabs(
@@ -332,59 +358,77 @@ def _(Checkbox, commands, mo, render_option_input):
         tab_params = None
         cmd_tabs = None
     cmd_tabs
-    return cmd_tabs, run_cmd_button, tab_params
+    return cmd_tabs, run_cmd_button, streamed_outputs_opt_in, tab_params
 
 
 @app.cell
-def _(
+async def _(
+    asyncclick,
+    click,
     cmd_tabs,
     commands,
     mo,
     render_options,
     run_cmd_button,
+    streamed_outputs_opt_in,
     tab_params,
     traceback,
 ):
+    async def _run_cmd():
+        picked_cmd = next(_c for _c in commands if _c[0].name == cmd_tabs.value)[0]
+        args = {
+            "args": render_options(params_select=tab_params[cmd_tabs.value]),
+            "standalone_mode": False,  # Don't auto-exit the interpreter on finish.
+        }
+        match picked_cmd:
+            case click.Command():
+                picked_cmd.main(**args)
+            case asyncclick.core.Command():
+                await picked_cmd.main(**args)
+
     if run_cmd_button.value:
         try:
-            with mo.capture_stdout() as _stdout, mo.capture_stderr() as _stderr:
-                try:
-                    picked_cmd = next(_c for _c in commands if _c[0].name == cmd_tabs.value)[0]
-                    picked_cmd.main(
-                        args=render_options(params_select=tab_params[cmd_tabs.value]),
-                        standalone_mode=False,  # Don't auto-exit the interpreter on finish.
-                    )
-                except Exception:
-                    traceback.print_exc()
-
-                _fmtd_out = ""
-                if _out := _stdout.getvalue():
-                    _fmtd_out = f"""
+            # For now, we're gonna let people opt into whether they want nice formatting or streamed
+            # outputs. Ideally I wouldn't have to choose and I'd just go with redirecting in all cases,
+            # but Marimo's redirect support renders as byte strings which is absolutely ugly.
+            if streamed_outputs_opt_in.value:
+                with mo.redirect_stdout(), mo.redirect_stderr():
+                    await _run_cmd()
+                _output = None
+            else:
+                with mo.capture_stdout() as _stdout, mo.capture_stderr() as _stderr:
+                    await _run_cmd()
+                    _fmtd_out = ""
+                    if _out := _stdout.getvalue():
+                        _fmtd_out = f"""
     StdOut
     ```bash
     {_out}
     ```
     """
-                _fmtd_err = ""
-                if _err := _stderr.getvalue():
-                    _fmtd_err = f"""
+                    _fmtd_err = ""
+                    if _err := _stderr.getvalue():
+                        _fmtd_err = f"""
     StdErr
     ```bash
     {_err}
     ```
     """
-                _output = mo.md(f"""
+                    _output = mo.md(f"""
     # Command Output
     {_fmtd_out}
 
     {_fmtd_err}
     """)
+        except Exception:
+            traceback.print_exc()
+            _output = None
         except SystemExit:
             pass
     else:
         _output = None
     _output
-    return (picked_cmd,)
+    return
 
 
 if __name__ == "__main__":
