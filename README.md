@@ -36,6 +36,12 @@ $ click-clack
 
 This project crawls all `.py` files at and below the directory where the `click-clack` command is run. It then automatically traverses the Python AST looking for the `@click.command()` decorator, and imports the decorated commands and generates a minimalist UI for them.
 
+### Support for [click](https://pypi.org/project/click/) and [asyncclick](https://pypi.org/project/asyncclick/)
+Whether you're writing basic `click` commands, or using `asyncclick` to write async commands, `click-clack` seamlessly supports your command by auto-detecting the command type.
+
+### UI Generation via [Marimo](https://marimo.io)
+[Marimo](https://marimo.io) fundamentally underpins this package by providing an extremely simple framework for generating interactive UIs in pure python.
+
 ## Command Parameter Discovery
 
 The UI will generate an input for each command parameter, and will forward the data from the input to the command.
