@@ -11,7 +11,7 @@ from marimo._cli.parse_args import parse_args
 from marimo._config.settings import GLOBAL_SETTINGS
 from marimo._server.model import SessionMode
 
-from src import ClickClack
+from click_clack import ClickClack
 
 
 def click_clack() -> None:

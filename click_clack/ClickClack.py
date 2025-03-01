@@ -7,7 +7,6 @@ app = marimo.App(width="full")
 @app.cell
 def _():
     import marimo as mo
-
     return (mo,)
 
 
@@ -55,7 +54,7 @@ def _():
                                     current_module_path,
                                 )
                             )
-                        except NameError:
+                        except Exception:
                             # Likely a class/function defined in another module
                             pass  # Or handle differently if needed
                         break  # Found the decorator, no need to check others
@@ -86,7 +85,6 @@ def _():
             raise ValueError("Invalid module path. Must be a directory.")
 
         return decorated_objects
-
     return ast, find_decorated_objects, import_module, inspect, os
 
 
@@ -151,7 +149,7 @@ def _(
 
 
 @app.cell
-def _(mo):
+def _(mo, os):
     import click
     from dataclasses import dataclass
 
@@ -161,7 +159,7 @@ def _(mo):
         is_flag: bool
 
     RENDERED_OPTION_SELECT = (
-        mo._plugins.ui._impl.input.text | mo.ui.number | mo.ui.number | Checkbox | mo.ui.dropdown
+        mo._plugins.ui._impl.input.text | mo.ui.number | mo.ui.number | Checkbox | mo.ui.dropdown | mo.ui.file | mo.ui.number
     )
 
     CLICK_TYPE_TO_MARIMO_UI = {
@@ -170,6 +168,11 @@ def _(mo):
         click.FLOAT: mo.ui.number,
         click.BOOL: mo.ui.checkbox,
         click.Choice: mo.ui.dropdown,
+        click.File: mo.ui.file_browser,
+        click.Path: mo.ui.text,
+        click.DateTime: mo.ui.text,
+        click.IntRange: mo.ui.number,
+        click.FloatRange: mo.ui.number,
     }
 
     def render_option_input(opt: click.Option):
@@ -177,43 +180,78 @@ def _(mo):
         opts = opt.opts
         required = opt.required
         help = opt.help
+        label=("" if required else "(Optional) ") + "/".join(opts)
 
         match opt.type:
             case click.STRING:
                 ui_element = CLICK_TYPE_TO_MARIMO_UI[click.STRING](
                     placeholder=default if default and not required else "",
-                    label=("" if required else "(Optional) ") + "/".join(opts),
+                    label=label,
                 )
             case click.INT:
                 ui_element = CLICK_TYPE_TO_MARIMO_UI[click.INT](
                     value=default if default is not None else 0,
-                    label=("" if required else "(Optional) ") + "/".join(opts),
+                    label=label,
                 )  # Default to 0 if no default is provided for int
             case click.FLOAT:
                 ui_element = CLICK_TYPE_TO_MARIMO_UI[click.FLOAT](
                     value=default if default is not None else 0.0,
-                    label=("" if required else "(Optional) ") + "/".join(opts),
+                    label=label,
                 )  # Default to 0.0 if no default for float
             case click.BOOL:
                 ui_element = Checkbox(
                     ui_elem=CLICK_TYPE_TO_MARIMO_UI[click.BOOL](
                         value=bool(default) if default is not None else False,
-                        label=("" if required else "(Optional) ") + "/".join(opts),
+                        label=label,
                     ),  # Default to False if no default for bool
                     is_flag=opt.is_flag,
                 )
             case click.Choice(choices=choices):
                 ui_element = CLICK_TYPE_TO_MARIMO_UI[click.Choice](
                     options=choices,  # Extract choices from click.Choice type
-                    label=("" if required else "(Optional) ") + "/".join(opts),
+                    label=label,
                     searchable=len(choices) >= 5,
                     value=default,
+                )
+            case click.File():
+                # TODO: Add support for click's more advanced features here, such as stdin via "-" and 
+                #       referencing files that don't necessarily exist yet.
+                ui_element = CLICK_TYPE_TO_MARIMO_UI[click.File](
+                    label=label,
+                    initial_path=os.getcwd(),
+                    multiple=False,
+                    restrict_navigation=False,  # Allow selecting arbitrary files even above curr dir.
+                )
+            case click.Path():
+                ui_element = CLICK_TYPE_TO_MARIMO_UI[click.Path](
+                    placeholder=str(default) if default and not required else "", # Default to string representation of default path
+                    label=label,
+                )
+            case click.DateTime(formats=formats):
+                ui_element = CLICK_TYPE_TO_MARIMO_UI[click.DateTime](
+                    placeholder=str(default) if default else "  |  ".join(formats),
+                    label=label,
+                    full_width=True,  # Make room to show all the formats.
+                )
+            case click.IntRange(min=min_val, max=max_val):
+                ui_element = CLICK_TYPE_TO_MARIMO_UI[click.IntRange](
+                    start=min_val,
+                    stop=max_val,
+                    step=1,  # Integers.
+                    value=default,
+                    label=label,
+                )
+            case click.FloatRange(min=min_val, max=max_val):
+                ui_element = CLICK_TYPE_TO_MARIMO_UI[click.FloatRange](
+                    start=min_val,
+                    stop=max_val,
+                    value=default, 
+                    label=label,
                 )
             case _:
                 raise ValueError(f"Encountered Unsupported Option Types: {opt}")
 
         return ui_element
-
     return (
         CLICK_TYPE_TO_MARIMO_UI,
         Checkbox,
@@ -225,7 +263,7 @@ def _(mo):
 
 
 @app.cell
-def show_cmd_output(Checkbox, RENDERED_OPTION_SELECT):
+def show_cmd_output(Checkbox, RENDERED_OPTION_SELECT, mo):
     import traceback
 
     def render_options(
@@ -237,11 +275,13 @@ def show_cmd_output(Checkbox, RENDERED_OPTION_SELECT):
                 case Checkbox(ui_elem=ui_elem, is_flag=is_flag) if is_flag == True:
                     if ui_elem.value:
                         rendered_options.append(option)
+                case mo.ui.file_browser(path=path) as f:
+                    rendered_options.append(option)
+                    rendered_options.append(path())
                 case _ if ui_select.value:
                     rendered_options.append(option)
                     rendered_options.append(str(ui_select.value))
         return rendered_options
-
     return render_options, traceback
 
 

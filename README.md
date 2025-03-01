@@ -48,4 +48,9 @@ Currently this project only supports automatically discovering the following com
 - `float`
 - `bool` (including `is_flag=True`)
 - `click.Choice`
+- `click.File` (via a file browser UI element: TODO - support stdout via click's magic `"-"` file arg support)
+- `click.Path`
+- `click.DateTime`
+- `click.IntRange`
+- `click.FloatRange`
 - ...literally everything else is a TODO...
