@@ -303,14 +303,34 @@ async def _(
     mo,
     render_option_input,
 ):
+    from collections import Counter
+
+    def get_cmd_tab_name(_cmd, _location, _cmd_counts: Counter):
+        # It's possible that the same command name is used repeatedly in the codebase (note that this
+        # "name" is actually just the name of the function decorated with @click.command() so honestly
+        # it's not that surprising if it'll be duplicated). If it is, we need to distinguish them in the
+        # ui somehow.
+        if _cmd_counts[_cmd.name] > 1:
+            return f"{_cmd.name} ({_location})"
+        return _cmd.name
+
     async def _generate_help(command):
         """Generates a formatted help string for a Click command."""
-        # Create a dummy context
+        # Create a dummy context - we may still need to await this if in the asyncclick case this is
+        # actually a coroutine object right now.
+        ctx = command.make_context(
+            command.name,
+            [],
+            # Ensure that for now we prevent this created context from throwing errors on
+            # the empty args we're passing in. We can't possibly know the args yet, but we
+            # don't need them since we just want the help message.
+            resilient_parsing=True,
+        )  # Important!
         match command:
             case click.Command():
-                ctx = command.make_context(command.name, [])  # Important!
+                pass  # We're all good, no need to await.
             case asyncclick.core.Command():
-                ctx = await command.make_context(command.name, [])  # Important!
+                ctx = await ctx  # We need to await this call unlike with non-async click.
             case _:
                 raise ValueError(f"Unexpected command type: {command} {type(command)}")
         # Get the help string using the context
@@ -326,13 +346,15 @@ async def _(
         label="Stream Output (for long-running commands, but worse formatting due to current Marimo limitations)"
     )
     if commands:
+        command_name_counts = Counter([c[0].name for c in commands])
         tab_params = {}
         _tabs = {}
         for _com, _location in sorted(commands, key=lambda _t: _t[0].name):
             _params_select = {_opt.opts[0]: render_option_input(_opt) for _opt in _com.params}
-            tab_params[_com.name] = _params_select
+            _cmd_tab_name = get_cmd_tab_name(_com, _location, command_name_counts)
+            tab_params[_cmd_tab_name] = _params_select
 
-            _tabs[_com.name] = mo.vstack(
+            _tabs[_cmd_tab_name] = mo.vstack(
                 [
                     mo.md(f"""
     ```bash
@@ -357,8 +379,17 @@ async def _(
     else:
         tab_params = None
         cmd_tabs = None
+        command_name_counts = None
     cmd_tabs
-    return cmd_tabs, run_cmd_button, streamed_outputs_opt_in, tab_params
+    return (
+        Counter,
+        cmd_tabs,
+        command_name_counts,
+        get_cmd_tab_name,
+        run_cmd_button,
+        streamed_outputs_opt_in,
+        tab_params,
+    )
 
 
 @app.cell
@@ -366,7 +397,9 @@ async def _(
     asyncclick,
     click,
     cmd_tabs,
+    command_name_counts,
     commands,
+    get_cmd_tab_name,
     mo,
     render_options,
     run_cmd_button,
@@ -375,16 +408,24 @@ async def _(
     traceback,
 ):
     async def _run_cmd():
-        picked_cmd = next(_c for _c in commands if _c[0].name == cmd_tabs.value)[0]
+        picked_cmd = next(
+            _c
+            for _c in commands
+            if get_cmd_tab_name(_c[0], _c[1], command_name_counts) == cmd_tabs.value
+        )[0]
         args = {
             "args": render_options(params_select=tab_params[cmd_tabs.value]),
             "standalone_mode": False,  # Don't auto-exit the interpreter on finish.
         }
-        match picked_cmd:
-            case click.Command():
-                picked_cmd.main(**args)
-            case asyncclick.core.Command():
-                await picked_cmd.main(**args)
+        try:
+            match picked_cmd:
+                case click.Command():
+                    picked_cmd.main(**args)
+                case asyncclick.core.Command():
+                    await picked_cmd.main(**args)
+        except Exception:
+            # Catch any exception and render it to stdout.
+            traceback.print_exc()
 
     if run_cmd_button.value:
         try:
@@ -420,9 +461,6 @@ async def _(
 
     {_fmtd_err}
     """)
-        except Exception:
-            traceback.print_exc()
-            _output = None
         except SystemExit:
             pass
     else:
