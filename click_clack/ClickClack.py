@@ -1,13 +1,12 @@
 import marimo
 
-__generated_with = "0.11.6"
+__generated_with = "0.11.17"
 app = marimo.App(width="full")
 
 
 @app.cell
 def _():
     import marimo as mo
-
     return (mo,)
 
 
@@ -55,7 +54,8 @@ def _():
                                     current_module_path,
                                 )
                             )
-                        except Exception:
+                        except Exception as e:
+                            print(f"Found one?: {current_module_path}: {e}")
                             pass  # Or handle differently if needed
                         break  # Found the decorator, no need to check others
 
@@ -85,7 +85,6 @@ def _():
             raise ValueError("Invalid module path. Must be a directory.")
 
         return decorated_objects
-
     return ast, find_decorated_objects, import_module, inspect, os
 
 
@@ -256,10 +255,15 @@ def _(mo, os):
                     label=label,
                 )
             case _:
-                raise ValueError(f"Encountered Unsupported Option Types: {opt} {opt.type}")
+                print(
+                    f"Encountered Unsupported Option Types: {opt} {opt.type} - handling as text input."
+                )
+                ui_element = mo.ui.text(
+                    placeholder=default if default and not required else "",
+                    label=label,
+                )
 
         return ui_element
-
     return (
         Checkbox,
         RENDERED_OPTION_SELECT,
@@ -290,19 +294,11 @@ def show_cmd_output(Checkbox, RENDERED_OPTION_SELECT, mo):
                     rendered_options.append(option)
                     rendered_options.append(str(ui_select.value))
         return rendered_options
-
     return render_options, traceback
 
 
 @app.cell
-async def _(
-    Checkbox,
-    asyncclick,
-    click,
-    commands,
-    mo,
-    render_option_input,
-):
+async def _(Checkbox, asyncclick, click, commands, mo, render_option_input):
     from collections import Counter
 
     def get_cmd_tab_name(_cmd, _location, _cmd_counts: Counter):
