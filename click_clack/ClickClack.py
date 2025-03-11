@@ -130,10 +130,11 @@ def _(mo, os):
 def _(
     DECORATOR_NAME_TEXT_AREA_FORM_FIELD,
     EXCLUDE_FILE_BROWSER_FORM_FIELD,
-    find_decorated_objects,
     form,
     os,
 ):
+    from crawl import crawl_click_commands
+
     _curr_path = os.getcwd()
 
     if form.value:
@@ -142,14 +143,14 @@ def _(
         _files_to_exclude = {
             f.path[len(_curr_path) + 1 :] for f in form.value[EXCLUDE_FILE_BROWSER_FORM_FIELD]
         }
-        commands = find_decorated_objects(_curr_path, _decorator_name, exclude=_files_to_exclude)
+        commands = crawl_click_commands(_curr_path, exclude=_files_to_exclude)
     else:
         # Just kick this off right away optimistically, if there are any issues, then fallback.
         try:
-            commands = find_decorated_objects(_curr_path, "command", exclude={})
+            commands = crawl_click_commands(_curr_path, exclude={})
         except Exception:
             commands = []
-    return (commands,)
+    return commands, crawl_click_commands
 
 
 @app.cell

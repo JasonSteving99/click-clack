@@ -1,4 +1,4 @@
-# Auto Generated Minimalist UI For All of Your Python Scripts
+# Auto Generated MCP Server & UI For All of Your Python Scripts
 
 For example, when in a repo containing the following files:
 
@@ -31,6 +31,31 @@ $ click-clack
 
 ...simply enter any values, and click `Run Command!`:
 ![Run Command](https://raw.githubusercontent.com/JasonSteving99/python-script-ui/refs/heads/main/images/minimalist_ui_example_run.png)
+
+## Auto Generated MCP Server
+
+If you'd like to make your click commands accessible to MCP Clients such as [Claude Desktop](https://claude.ai/download), simply add the following config to `claude_desktop_config.json`:
+
+```json
+{
+    "mcpServers": {
+        "click_clack_testpypi": {
+            "command": "uvx",
+            "args": [
+                "--from",
+                "click-clack",
+                "--",
+                "click-clack",
+                "--mcp",
+                "--module-path",
+                "/path/to/directory/with/your/click/commands"
+            ]
+        }
+    }
+}
+```
+
+Note that you'll need to [install `uv`](https://docs.astral.sh/uv/getting-started/installation/) globally first for this to work.
 
 ## How It Works
 
