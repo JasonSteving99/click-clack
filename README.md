@@ -27,23 +27,24 @@ $ click-clack
 ```
 
 ...you'll get a minimalist UI that looks like this:
-![Scripts UI](https://raw.githubusercontent.com/JasonSteving99/python-script-ui/refs/heads/main/images/minimalist_ui_example.png)
+![Scripts UI](https://raw.githubusercontent.com/JasonSteving99/click-clack/refs/heads/main/images/minimalist_ui_example.png)
 
 ...simply enter any values, and click `Run Command!`:
-![Run Command](https://raw.githubusercontent.com/JasonSteving99/python-script-ui/refs/heads/main/images/minimalist_ui_example_run.png)
+![Run Command](https://raw.githubusercontent.com/JasonSteving99/click-clack/refs/heads/main/images/minimalist_ui_example_run.png)
 
 ## Auto Generated MCP Server
 
-If you'd like to make your click commands accessible to MCP Clients such as [Claude Desktop](https://claude.ai/download), simply add the following config to `claude_desktop_config.json`:
+If you'd like to make your click commands accessible to MCP Clients such as [Claude Desktop](https://claude.ai/download), simply add the following config to `claude_desktop_config.json` (see https://modelcontextprotocol.io/quickstart/user for more info):
 
 ```json
 {
     "mcpServers": {
-        "click_clack_testpypi": {
-            "command": "uvx",
+        "click_clack": {
+            "command": "uv",
             "args": [
-                "--from",
-                "click-clack",
+                "run",
+                "--directory",
+                "/path/to/directory/with/your/click/commands"
                 "--",
                 "click-clack",
                 "--mcp",
@@ -55,7 +56,14 @@ If you'd like to make your click commands accessible to MCP Clients such as [Cla
 }
 ```
 
-Note that you'll need to [install `uv`](https://docs.astral.sh/uv/getting-started/installation/) globally first for this to work.
+Note that for this to work as documented above, you'll need to [install `uv`](https://docs.astral.sh/uv/getting-started/installation/) globally first and the `/path/to/directory/with/your/click/commands` directory must be a valid uv project (i.e. you ran `uv init` there and `uv add`ed the dependencies your commands need).
+
+For example, in Claude Desktop once properly configured you'll be able to see the available tools provided by the `click-clack` MCP server.
+![Claude Desktop Example](https://raw.githubusercontent.com/JasonSteving99/click-clack/refs/heads/main/images/claude_desktop_mcp_tools_example.png)
+
+### Note on MCP Tool Outputs!
+
+Click commands don't generally return values, so instead when running your commands as an MCP tool, Click Clack will **capture all stdout/stderr output that your command emits, and redirect that to the MCP client as your tool's reponse**. So, instead of returning your final tool response, use `print(response)` instead.
 
 ## How It Works
 
@@ -66,6 +74,9 @@ Whether you're writing basic `click` commands, or using `asyncclick` to write as
 
 ### UI Generation via [Marimo](https://marimo.io)
 [Marimo](https://marimo.io) fundamentally underpins this package by providing an extremely simple framework for generating interactive UIs in pure python.
+
+### MCP Server Generation via [FastMCP](https://github.com/jlowin/fastmcp/tree/main)
+MCP Server generation is entirely based on [FastMCP](https://github.com/jlowin/fastmcp/tree/main), which does almost all of the heavy lifting. Click Clack just performs auto-discovery and does a bit of clever wrapping of your Click commands to be able to pass them off to FastMCP as tools.
 
 ## Command Parameter Discovery
 
